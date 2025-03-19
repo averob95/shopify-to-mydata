@@ -35,7 +35,8 @@ def receive_shopify_order():
                 }
             },
             "counterpart": {
-                "vatNumber": customer.get("tax_exempt", "000000000"),  # Use real VAT if available
+                "vatNumber": customer.get("vat_number", "000000000"),
+
                 "country": "GR",
                 "name": f"{customer.get('first_name', '')} {customer.get('last_name', '')}",
                 "address": {
@@ -65,7 +66,8 @@ def receive_shopify_order():
                     "lineUnitPrice": float(item["price"]),
                     "netValue": float(item["price"]) * item["quantity"],
                     "vatCategory": 1,  # Standard VAT
-                    "vatAmount": (float(item["price"]) * item["quantity"]) * (tax_price / total_price)  # Correct VAT
+                    "vatAmount": (float(item["price"]) * item["quantity"]) * (tax_price / total_price)  # Correct VAT Calculation
+
                 } for idx, item in enumerate(order_items)
             ],
             "invoiceSummary": {
@@ -80,14 +82,22 @@ def receive_shopify_order():
     headers = {"API-KEY": API_KEY, "Content-Type": "application/json"}
     
     try:
-        response = requests.post(MYDATA_API_URL, json=invoice, headers=headers)
-        response_data = response.json()
-        
-        # Handle errors
-        if response.status_code != 200 or response_data.get("statusCode") not in ["Success", "Offline"]:
-            print(f"Error Sending Invoice: {response_data}")
-        
-        return jsonify({"status": response.status_code, "response": response_data})
+        try:
+    response = requests.post(MYDATA_API_URL, json=invoice, headers=headers)
+    response_data = response.json()
+
+    # Handle errors properly
+    if response.status_code != 200 or response_data.get("statusCode") not in ["Success", "Offline"]:
+        print(f"❌ ERROR: Invoice Failed! Response: {response_data}")
+        return jsonify({"status": response.status_code, "error": response_data}), 400
+
+    print("✅ Invoice Sent Successfully!")
+    return jsonify({"status": response.status_code, "response": response_data})
+
+except requests.exceptions.RequestException as e:
+    print(f"❌ ERROR: API Request Failed - {str(e)}")
+    return jsonify({"status": 500, "error": "Internal Server Error"}), 500
+
 
     except Exception as e:
         print(f"API Error: {str(e)}")
