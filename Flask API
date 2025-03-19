@@ -1,12 +1,13 @@
 from flask import Flask, request, jsonify
 import requests
 import datetime
+import os
 
 app = Flask(__name__)
 
 # API Configurations
 MYDATA_API_URL = "https://provider.timologisi.online/api/v1/Provider/SendInvoices"
-API_KEY = "nvuscnspts_Sandbox_9nsoMuZtaA_37154cb778c41cd8661c9606f6960c40713eb29fa91bf0fc6372442880da7dca"
+API_KEY = os.getenv("MYDATA_API_KEY")  # Use environment variable for security
 
 @app.route('/shopify-webhook', methods=['POST'])
 def receive_shopify_order():
@@ -34,7 +35,7 @@ def receive_shopify_order():
                 }
             },
             "counterpart": {
-                "vatNumber": "000000000",  # If customer has VAT number, replace this
+                "vatNumber": customer.get("tax_exempt", "000000000"),  # Use real VAT if available
                 "country": "GR",
                 "name": f"{customer.get('first_name', '')} {customer.get('last_name', '')}",
                 "address": {
@@ -64,7 +65,7 @@ def receive_shopify_order():
                     "lineUnitPrice": float(item["price"]),
                     "netValue": float(item["price"]) * item["quantity"],
                     "vatCategory": 1,  # Standard VAT
-                    "vatAmount": tax_price
+                    "vatAmount": (float(item["price"]) * item["quantity"]) * (tax_price / total_price)  # Correct VAT
                 } for idx, item in enumerate(order_items)
             ],
             "invoiceSummary": {
@@ -77,10 +78,20 @@ def receive_shopify_order():
 
     # Send to myDATA Provider API
     headers = {"API-KEY": API_KEY, "Content-Type": "application/json"}
-    response = requests.post(MYDATA_API_URL, json=invoice, headers=headers)
+    
+    try:
+        response = requests.post(MYDATA_API_URL, json=invoice, headers=headers)
+        response_data = response.json()
+        
+        # Handle errors
+        if response.status_code != 200 or response_data.get("statusCode") not in ["Success", "Offline"]:
+            print(f"Error Sending Invoice: {response_data}")
+        
+        return jsonify({"status": response.status_code, "response": response_data})
 
-    return jsonify({"status": response.status_code, "response": response.json()})
-
+    except Exception as e:
+        print(f"API Error: {str(e)}")
+        return jsonify({"status": 500, "error": "Internal Server Error"}), 500
 
 if __name__ == '__main__':
     app.run(port=5000, debug=True)
