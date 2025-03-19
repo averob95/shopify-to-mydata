@@ -1,0 +1,86 @@
+from flask import Flask, request, jsonify
+import requests
+import datetime
+
+app = Flask(__name__)
+
+# API Configurations
+MYDATA_API_URL = "https://provider.timologisi.online/api/v1/Provider/SendInvoices"
+API_KEY = "nvuscnspts_Sandbox_9nsoMuZtaA_37154cb778c41cd8661c9606f6960c40713eb29fa91bf0fc6372442880da7dca"
+
+@app.route('/shopify-webhook', methods=['POST'])
+def receive_shopify_order():
+    data = request.json  # Get Shopify order data
+
+    # Extract order details
+    customer = data.get("customer", {})
+    order_items = data.get("line_items", [])
+    total_price = float(data.get("total_price", 0))
+    tax_price = float(data.get("total_tax", 0))
+    currency = data.get("currency", "EUR")
+
+    # Build invoice JSON
+    invoice = {
+        "invoice": {
+            "issuer": {
+                "vatNumber": "EL157694702",
+                "country": "GR",
+                "branch": 0,
+                "address": {
+                    "street": "AGAMEMNONOS",
+                    "number": "8",
+                    "postalCode": "19016",
+                    "city": "ARTEMIDA-ATTIKIS"
+                }
+            },
+            "counterpart": {
+                "vatNumber": "000000000",  # If customer has VAT number, replace this
+                "country": "GR",
+                "name": f"{customer.get('first_name', '')} {customer.get('last_name', '')}",
+                "address": {
+                    "street": customer.get("default_address", {}).get("address1", ""),
+                    "postalCode": customer.get("default_address", {}).get("zip", ""),
+                    "city": customer.get("default_address", {}).get("city", "")
+                }
+            },
+            "invoiceHeader": {
+                "series": "INV",
+                "aa": str(data.get("id")),
+                "issueDate": datetime.datetime.now().isoformat(),
+                "invoiceType": "1.1",
+                "currency": currency
+            },
+            "paymentMethods": [
+                {
+                    "type": 3,  # Card payment
+                    "amount": total_price
+                }
+            ],
+            "invoiceDetails": [
+                {
+                    "lineNumber": idx + 1,
+                    "lineDescription": item["name"],
+                    "quantity": item["quantity"],
+                    "lineUnitPrice": float(item["price"]),
+                    "netValue": float(item["price"]) * item["quantity"],
+                    "vatCategory": 1,  # Standard VAT
+                    "vatAmount": tax_price
+                } for idx, item in enumerate(order_items)
+            ],
+            "invoiceSummary": {
+                "totalNetValue": total_price - tax_price,
+                "totalVatAmount": tax_price,
+                "totalGrossValue": total_price
+            }
+        }
+    }
+
+    # Send to myDATA Provider API
+    headers = {"API-KEY": API_KEY, "Content-Type": "application/json"}
+    response = requests.post(MYDATA_API_URL, json=invoice, headers=headers)
+
+    return jsonify({"status": response.status_code, "response": response.json()})
+
+
+if __name__ == '__main__':
+    app.run(port=5000, debug=True)
